@@ -32,7 +32,7 @@ A varredura completa pode levar horas. Desative a suspensão automática enquant
 
 Crie uma pasta, por exemplo `Documentos/txdot`, abra o Claude Code nela e cole o prompt abaixo.
 
-**Antes de colar, troque `SEU-USUARIO-GITHUB` pelo seu nome de usuário do GitHub** (aparece duas vezes no prompt).
+**Antes de colar, troque `SEU-USUARIO-GITHUB` pelo seu nome de usuário do GitHub** (aparece uma vez, no Passo 2).
 
 ## Parte 2 — Prompt para copiar e colar
 
@@ -44,7 +44,7 @@ Se copiar daqui, pegue tudo o que está entre as linhas `===== INÍCIO DO PROMPT
 
 Você vai medir o tamanho do acervo público de planos de construção do TxDOT (Departamento de Transportes do Texas), em https://ftp.txdot.gov/plans/, **sem baixar nenhum PDF**. Um script Python percorre só as páginas de listagem de pastas e registra nome, tamanho e data de cada arquivo. No fim, os resultados vão para o meu repositório no GitHub.
 
-Me responda sempre em português, com frases curtas: não sou programadora. Antes de cada passo, diga em uma linha o que vai fazer.
+Me responda sempre em português, com frases curtas: não trabalho com programação. Antes de cada passo, diga em uma linha o que vai fazer.
 
 ## Regras
 
@@ -479,11 +479,11 @@ Diga para eu copiar o conteúdo de `txdot-measure/REPORT.md` e colar na conversa
 ## Parte 3 — Depois
 
 1. Cole o `REPORT.md` na conversa original, e eu desenho as próximas fases com os números reais.
-2. Opcional: para eu ler o repositório `txdot-plans-kb` direto daqui, adicione a conta `laurakretly` como colaboradora em **Settings → Collaborators** (só é preciso se você criou uma conta nova).
+2. Opcional: para eu ler o repositório `txdot-plans-kb` direto daqui, adicione a conta `laurakretly` como colaborador em **Settings → Collaborators** (só é preciso se você criou uma conta nova).
 
 ## Se no outro computador só houver o chat do claude.ai
 
-O chat não roda programas na sua máquina, então você mesma roda o script:
+O chat não roda programas na sua máquina, então é você quem roda o script:
 
 1. Instale o Python 3 (https://www.python.org/downloads/).
 2. Salve o bloco de código Python do prompt acima num arquivo chamado `measure.py`.

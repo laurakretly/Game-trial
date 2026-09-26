@@ -1,6 +1,6 @@
 Você vai medir o tamanho do acervo público de planos de construção do TxDOT (Departamento de Transportes do Texas), em https://ftp.txdot.gov/plans/, **sem baixar nenhum PDF**. Um script Python percorre só as páginas de listagem de pastas e registra nome, tamanho e data de cada arquivo. No fim, os resultados vão para o meu repositório no GitHub.
 
-Me responda sempre em português, com frases curtas: não sou programadora. Antes de cada passo, diga em uma linha o que vai fazer.
+Me responda sempre em português, com frases curtas: não trabalho com programação. Antes de cada passo, diga em uma linha o que vai fazer.
 
 ## Regras
 
