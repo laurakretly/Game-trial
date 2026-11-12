@@ -1,82 +1,95 @@
-# SIT (Sistema de Información Trust) — Investigación técnica y opciones de migración
+# SIT (Sistema de Información Trust): qué es, sobre qué código abierto está construido y cómo modernizarlo
 
-Fecha: 12 de noviembre de 2026. Preparado a partir de: código abierto ActionApps (release 2.50 y repositorio GitHub actual), documentación pública del proyecto, y documentos/correos/chats internos de The Trust (SharePoint, Outlook, Teams).
+Fecha: 12 de noviembre de 2026.
+Fuentes: código fuente público de ActionApps (release 2.50 de 2009 y repositorio GitHub actual), documentación pública del proyecto (SourceForge, actionapps.org) y documentos de trabajo de The Trust guardados en SharePoint/OneDrive (manuales del SIT, cronograma 2024, presentaciones de M&E, documento histórico de la FSP) y el correo de soporte de mayo 2025. No se usaron conversaciones de Teams.
+Limitación: desde este entorno no se pudo abrir `registro.trustfortheamericas.org`, `nuevo.sit.trustfortheamericas.org` ni `aa.ecn.cz` (dominios fuera de la política de red de la sesión). Lo que sigue se apoya en el código y en los documentos.
 
-Nota: desde esta sesión no fue posible abrir `registro.trustfortheamericas.org` ni `nuevo.sit.trustfortheamericas.org` (dominios fuera de la política de red del entorno), ni `aa.ecn.cz` ni el SVN de SourceForge. Todo lo que sigue se apoya en el código fuente público y en la documentación interna.
+## 1. Qué es el SIT técnicamente
 
----
+El SIT es una instalación personalizada de **APC ActionApps (apc-aa)**, una plataforma de publicación y gestión de contenidos de código abierto (licencia GPL v2) creada por la **Association for Progressive Communications (APC)**, red internacional de ONG. La URL `registro.trustfortheamericas.org/apc-aa/admin/` es el panel de administración estándar de ActionApps, sin renombrar.
 
-## 1. Qué es el SIT, técnicamente
+Tecnología: **PHP + MySQL/MariaDB** sobre Linux (el servidor guarda el sitio en `/data/registro.trustfortheamericas.org/apc-aa/`). Es una aplicación clásica de servidor, sin framework moderno ni API REST en las versiones antiguas.
 
-- El SIT está construido sobre **APC ActionApps (apc-aa)**, un CMS/plataforma de publicación de código abierto (GPL v2) creado en 2000 por la Association for Progressive Communications (APC). La ruta `/apc-aa/admin/` es, literalmente, el panel de administración estándar de ActionApps.
-- Stack: **PHP + MySQL/MariaDB** sobre Linux. Los archivos `.php3` que aparecen en los errores (`include/zids.php3`, `filler.php3`) son los nombres históricos de ActionApps. La ruta del servidor es `/data/registro.trustfortheamericas.org/apc-aa/`.
-- Piezas visibles del SIT que corresponden a ActionApps:
-  - `/apc-aa/admin/` → back-end ("Administrador de ítems", "Importar CSV", "Export to file", "añadir un ítem", "por aprobar / marcar visibles").
-  - `/apc-aa/filler.php3` → receptor de los formularios públicos de registro (por ejemplo el formulario de nuevo participante BR, con `slice_id` oculto).
-  - `/apc-aa-files/<hash>/...` → archivos subidos (PDF, imágenes de reportes, manuales).
-  - `nuevo.sit.trustfortheamericas.org/es/...` → el "SIT 2.0", la capa de usuario para Socios Locales/Centros (Mis Participantes, Mi Centro, Mis Cursos, Monitoreo Mensual, Reportes PDS, Propuestas, Reporte Financiero, Estadísticas, Instrucciones, Mi Cuenta, Directorios, Empleadores). Las URLs llevan IDs hexadecimales de 32 caracteres (por ejemplo `/es/ee1739e0.../pt-consultar-monitoramento-mensal?idpds=...`), que es el formato interno de ID de ActionApps. Todo indica que es el módulo "site"/vistas de ActionApps leyendo la misma base de datos, no un sistema aparte.
-- Concepto central de ActionApps: el **"slice"** (en la interfaz en español: **"canal"**). Cada canal es una colección de ítems con campos definidos por el administrador, sin cambiar el esquema de la base. En el SIT existen, entre otros: canal 4A "Cursos NEW", canal 5 "Participante: Perfil" (55 campos), canal 6 "Participante: Cursos", canal 22 (documentos para compartir), SIT7/SIT8/SIT10 (oportunidades económicas), más canales de Monitoreo Mensual, Reportes, Propuestas, Socios Locales, Centros, Directorio.
-- Modelo de datos (clave para cualquier migración): ActionApps guarda los ítems en formato **EAV** (entidad-atributo-valor):
-  - tabla `item`: id (16 caracteres), slice_id, headline, publish_date, expiry_date, status_code (activo / pendiente / papelera), etc.
-  - tabla `content`: item_id, field_id, text/number/flag. El `field_id` es un código de 16 caracteres rellenado con puntos, que es exactamente lo que se ve en los exportes del SIT: `headline........`, `text...........2`, `category.......4`, `publish_date....`.
-  - tablas `slice`, `field` (definición de campos por canal), `view` (plantillas HTML), `constant` / `constant_slice` (catálogos: países, géneros, vulnerabilidad, etc.), `auth_user`/`users`/`profile` (usuarios y permisos), `relation`, `feeds` (alimentación entre canales), `discussion`, `offline`, `log`, `pagecache`, `site`/`site_spot` (módulo de sitio), `module`, `toexecute`, `cron`, `change`.
-  - Las fechas se almacenan como **Unix timestamp** (por eso el manual de importación obliga a convertir fechas y a sumar el desfase horario).
-  - Los IDs de participante que ve el usuario (ej. `52881789846br`) son un campo propio del SIT, no el ID interno.
-- Herramientas nativas útiles para migrar: "Export to file" (CSV/HTML/XLS por canal), importador CSV (límite 2 MB por archivo, mapeo manual campo a campo), feeds, y en la versión actual una **API JSON** (`/api/v1/...`) y una cola de tareas para importaciones largas. En la 2.50 hay además `misc/export_by_sql` (scripts que aplanan el EAV a tablas `export_*`).
+Partes del SIT que son piezas estándar de ActionApps:
+- `/apc-aa/admin/` → back-end ("Administrador de ítems", "Importar CSV", "Export to file", "añadir un ítem", "por aprobar / marcar visibles", "modificación masiva").
+- `/apc-aa/filler.php3` → receptor de los "formularios anónimos" (los formularios públicos de registro de participantes envían un `slice_id` oculto a este script).
+- `/apc-aa-files/<hash>/...` → carpeta de archivos subidos (PDF, imágenes, manuales).
+- `nuevo.sit.trustfortheamericas.org/es/...` ("SIT 2.0", manual de marzo 2022) → la capa para Socios Locales y Centros (Mis Participantes, Mi Centro, Mis Cursos, Monitoreo Mensual, Reportes PDS, Propuestas, Reporte Financiero, Estadísticas, Instrucciones, Mi Cuenta, Directorios, Empleadores). Sus URLs contienen IDs hexadecimales de 32 caracteres (por ejemplo `/es/ee1739e05d8b.../pt-consultar-monitoramento-mensal`), que es el formato interno de identificador de ActionApps. Esto indica que el front es el módulo de sitio y las vistas de ActionApps leyendo la misma base de datos, no un sistema separado.
 
-## 2. Historia y actores
+## 2. Cómo guarda los datos (lo que importa para migrar)
 
-- 2011–2012: nace el SIT. En julio de 2012, en Bogotá, se presentó la "versión Beta del Sistema de Información TRUST (SIT), a cargo de **COLNODO** y Diana Andrade" (documento "Cómo se creó la FSP", junio 2016). La presentación de septiembre 2026 al Senior Staff dice "Desde 2011, el SIT permite centralizar y gestionar los datos de participantes".
-- **Colnodo** (Bogotá, Colombia) es una ONG miembro de APC desde 1994. Eso explica la elección de ActionApps: es el CMS de la red APC. Colnodo aparece en finanzas ("2018-SEP: Contract between TFTA and COLNODO to support the Digital Transformation", "Bolsa horas CICTE COLNODO 2019") y en las notas de check-in de 2026 ("Diana y Colnodo trabajando", "con el apoyo de Colnodo esta semana"). El "Conoldo" del pedido es, con toda probabilidad, **Colnodo**; en Teams la propia Laura escribió "Conoldo (??)".
-- **Core Group Solutions (CGS)**, México (Oscar Ortega, Laura Estela Martínez, Gabriela Mendoza, Kimberly González): soporte de TI y Microsoft 365/Azure de The Trust (Capacita-te en Azure, Power Automate, Monday.com, herramienta de time tracking). En Teams (junio 2026): "SIT es de Colnodo con CGS y Aula Virtual de Roberto". El cronograma SIT 2024 asigna a "Oscar / Laura" la documentación de manuales, base de datos y consultas SQL.
-- **Diana Andrade** (Senior IT and Data Systems Coordinator, Washington) es la dueña funcional del SIT desde 2012: crea canales, vistas, roles, formularios; pide traducciones editando el HTML de las vistas "en el bloc de notas para no modificar el código" (correos de 2024 y 2025).
-- Manual SIT 2.0 para Socios Locales: marzo 2022 (versión 2.1). Manual de Importación Masiva: mayo/junio 2026.
+El concepto central de ActionApps es el **slice**, traducido en la interfaz como **canal**. Cada canal es una colección de ítems con campos que el administrador define en pantalla, sin tocar el esquema de la base. Canales del SIT identificados en los manuales: 4A "Cursos NEW", 5 "Participante: Perfil" (55 campos), 6 "Participante: Cursos", 22 (documentos para compartir), SIT7/SIT8/SIT10 (oportunidades económicas), más canales de Monitoreo Mensual, Reportes, Propuestas, Socios Locales, Centros y Directorio.
 
-## 3. Señales de fragilidad observadas
+El almacenamiento es de tipo **EAV (entidad–atributo–valor)**:
+- Tabla `item`: id (16 caracteres), `slice_id`, `headline`, `publish_date`, `expiry_date`, `status_code` (1 activo, 2 pendiente/por aprobar, 3 papelera), `created_by`, `last_edit`.
+- Tabla `content`: `item_id`, `field_id`, valor (texto, número o bandera). El `field_id` es un código de 16 caracteres rellenado con puntos; es exactamente lo que aparece en la primera fila de los exportes del SIT: `headline........`, `text...........2`, `category.......4`, `publish_date....`, `abstract.......9`.
+- Tablas de definición: `slice`, `field` (campos de cada canal, tipo, obligatorio, widget), `view` (plantillas HTML con el lenguaje de alias `{...}`), `constant` y `constant_slice` (catálogos: países, géneros, vulnerabilidad, tipos de documento, etc.).
+- Usuarios y permisos: `auth_user`, `users`, `profile`, con roles autor, editor, administrador (de canal) y superadministrador (de la instalación).
+- Otras: `relation` (ítems relacionados), `feeds` (alimentación entre canales), `discussion`, `offline`, `log`, `pagecache`, `site` y `site_spot` (módulo de sitio), `module`, `toexecute`/`cron` (tareas programadas), `change`.
+- Las fechas se guardan como **Unix timestamp** (segundos desde 1970). Por eso el manual de importación obliga a convertir fechas y a sumar el desfase horario.
+- El identificador de participante que ven los usuarios (ej. `52881789846br`) es un campo propio del SIT, distinto del id interno.
+- Los archivos no están en la base: están en el disco, en `apc-aa-files/`, con su ruta guardada como texto en `content`.
 
-- Mayo 2025: error fatal "Maximum execution time of 350 seconds exceeded in /data/registro.trustfortheamericas.org/apc-aa/include/zids.php3 on line 115" al añadir participantes (OSJC, Brasil). `zids` es la rutina que calcula conjuntos de IDs de ítems; el error indica consultas que ya no escalan con el volumen de datos.
-- La importación masiva es manual y frágil: CSV ≤ 2 MB, fechas en Unix timestamp, 55 campos a mapear a mano, valores "en rojo" cuando una clave no coincide con los catálogos, control por etiquetas (`CONTROL DE IMPORTACIÓN`).
-- Cada cambio de formulario o idioma implica duplicar vistas HTML por rol (Centro PDS ES/PT, Centro sin proyecto, Socio local ES/PT, Lab DIA EN/ES, Lector Trust), como muestra el cronograma 2024.
-- Dependencia de proveedores: en Teams (junio 2026) el equipo describe que "todo está en manos de proveedores que dicen que es muy complejo, costoso".
-- Volumen: solo DigiSpark FY26 discutió registrar 53.898 personas con atribución y 110.347 sin atribución. Hay datos desde 2011.
-- Integraciones actuales que dependen del SIT: tableros Power BI (actualizados 3 veces al día; el mecanismo de extracción no está documentado en lo que revisé), KPIs de M&E en Excel ("SIT importar"), formularios públicos, enlaces de descarga de archivos en `apc-aa-files`.
+Consecuencia práctica: todos los datos del SIT caben en un `mysqldump` de una sola base más una copia de la carpeta `apc-aa-files/`. Migrar significa "pivotar" la tabla `content` (una fila por campo) a tablas relacionales normales (una fila por participante, por curso, por inscripción), usando `field` para saber qué significa cada código y `constant` para traducir los catálogos.
 
-## 4. El código base abierto: ActionApps
+## 3. Historia del SIT
 
-- Proyecto SourceForge `apc-aa` registrado el 31-05-2000. Releases: 1.8 (2001), 2.0 (2001), 2.2 (2002), 2.4 (2002), 2.6 (2003), 2.8.1 (2005), **2.50.0 (mayo 2009, último con PHP 4)**, **2.90.0 (agosto 2020, último con PHP 5)**. Entre releases el desarrollo fue continuo en SVN.
-- Desde septiembre de 2026 el desarrollo está en **GitHub: github.com/apc-aa/ActionApps** (6.365 commits; último commit 11-11-2026; ramas `main` para fuente y `dist` para instalar/actualizar; el SVN quedó como espejo de `dist`).
-- Requisitos actuales: **PHP ≥ 8.2** (extensiones ctype, curl, dom, gd, intl, mbstring, pdo_mysql, xsl…), **MariaDB ≥ 10.0.2 o MySQL ≥ 5.7.5**, base en `utf8mb4`, Apache 2.4 o nginx, git. Composer no es necesario (vendor incluido en `dist`).
-- Mantenedor principal: Honza Malík (Econnect / ecnstudio, Praga). Equipo muy pequeño; el propio PRODUCT.md lo reconoce.
-- Tamaño del código actual: ~1.700 archivos PHP y ~860.000 líneas (incluye copias legacy `.php3`, módulos alerts, polls, links, jump, site, API JSON, tests PHPUnit, PHPStan).
-- Documentación: README/INSTALL.md/UPDATE.md/DESIGN.md/PRODUCT.md/FILEMAP.md en el repo; `doc/AAdb.html` y `doc/AAdb_ER.html` (descripción y diagrama de la base); referencia de expresiones en actionapps.org/expressions; manual antiguo en documentation.actionapps.org y aa.ecn.cz/aa/doc.
-- Actualización: `git pull` de `dist` + `service/sql_update.php` (o AA → Optimize) + State Check. Respaldo recomendado: `mysqldump --single-transaction`.
-- Licencia GPL-2.0: The Trust es dueña de sus datos y de cualquier personalización; no hay licencia que pagar.
+- 2011–2012: nace el SIT. En julio de 2012, en Bogotá, se presentó la "versión Beta del Sistema de Información TRUST (SIT), a cargo de COLNODO y Diana Andrade" (documento interno "Cómo se creó la FSP", junio 2016). La presentación de M&E de septiembre 2026 dice "Desde 2011, el SIT permite centralizar y gestionar los datos de participantes".
+- **Colnodo** es una ONG de Bogotá, Colombia, miembro de APC desde 1994. Eso explica la elección de ActionApps: es el CMS histórico de la red APC y Colnodo lo conoce. En los registros financieros de The Trust aparece un contrato con Colnodo en septiembre de 2018 ("Contract between TFTA and COLNODO to support the Digital Transformation") y una "bolsa de horas" en 2019.
+- Marzo 2022: manual "SIT 2.0" para Socios Locales (versión 2.1), con el front `nuevo.sit`.
+- 2024: cronograma SIT 2024 (sitio "Transformación Digital" en SharePoint): documentación de manuales, de la base de datos y consultas SQL, creación de vistas y roles por idioma (Centro PDS ES/PT, Centro sin proyecto, Socio local ES/PT, Lab DIA EN/ES, Lector Trust), sección "Mis Cursos", y análisis del registro masivo de capacitaciones.
+- Mayo–junio 2026: "Manual de Importación Masiva SIT" (canales 5 y 6).
 
-Qué versión corre el SIT: no pude verificarlo. Las rutas `.php3`, `filler.php3` y `apc-aa-files` existen tanto en 2.50 (2009) como en el código actual, así que la versión instalada puede ser cualquiera entre ~2.50 y una revisión SVN. Es la primera pregunta a hacer a Colnodo (con `php -v` del servidor y el `CHANGES`/revisión instalada).
+## 4. Señales de que el sistema ya pide modernización
 
-## 5. Posibilidades de migración (sin perder datos)
+- Mayo 2025: un centro de Brasil recibió al añadir participantes el error "Fatal error: Maximum execution time of 350 seconds exceeded in /data/registro.trustfortheamericas.org/apc-aa/include/zids.php3 on line 115". `zids` es la rutina que calcula los conjuntos de ítems de un canal; el error indica consultas que ya no escalan con el volumen acumulado.
+- La importación masiva es manual y frágil: CSV de máximo 2 MB, fechas en Unix timestamp calculadas a mano, mapeo de 55 campos uno por uno, valores "en rojo" cuando no coinciden con los catálogos, control de lotes por etiquetas de texto, y la fecha de publicación se agrega después con una "modificación masiva".
+- Cada idioma o rol exige duplicar vistas HTML a mano (el cronograma 2024 lista "4 vistas: nuevo, edición, lectura y descarga" por cada rol e idioma).
+- Volumen: solo DigiSpark FY26 analizó registrar 53.898 personas con atribución y 110.347 sin atribución; hay datos desde 2011.
+- Dependencias actuales del SIT: tableros Power BI (actualizados tres veces al día; el mecanismo de extracción no está documentado en lo revisado), Excel de KPIs de M&E, formularios públicos de registro y enlaces de descarga a `apc-aa-files` incluidos en documentos y reportes.
 
-Lo que hay que obtener primero (inventario, 1–2 semanas, con Colnodo y CGS):
-1. `mysqldump` completo de la base `aadb` (todas las tablas) y copia de `apc-aa-files/` y de `include/config.php` (sin contraseñas en el correo).
-2. Lista de canales (slices) con sus definiciones de campos (`field`), catálogos (`constant`), vistas (`view`), roles/usuarios (`auth_user`, `perms`), feeds y crons.
-3. Versión de ActionApps y PHP/MySQL del servidor, proveedor de hosting, política de respaldos, dominio y certificados.
-4. Mapa de consumidores: Power BI, formularios públicos embebidos, enlaces a `apc-aa-files` en documentos, Excel de KPIs.
+## 5. El código abierto: ActionApps, de qué año es y dónde está
 
-Opciones:
+- Origen: el archivo CHANGES de la versión 2.50 registra entradas desde **noviembre de 1999**; el proyecto `apc-aa` se registró en SourceForge el **31 de mayo de 2000**. Autores: desarrolladores de la red APC, principalmente de Econnect (Praga, República Checa). Mantenedor principal actual: Honza Malík (Econnect / ecnstudio). Equipo muy pequeño.
+- Dónde ver el código:
+  - **GitHub: https://github.com/apc-aa/ActionApps** — desde septiembre de 2026 es el repositorio oficial (6.365 commits, último commit el 11-11-2026; rama `main` con el fuente y rama `dist` con los archivos listos para instalar). Es público: cualquiera puede leerlo, clonarlo y auditarlo.
+  - **SourceForge: https://sourceforge.net/projects/apc-aa/** — histórico (SVN, hoy espejo de `dist`, y descargas: `aa-2.50.0.tgz`, 4,6 MB).
+  - Documentación: actionapps.org (referencia de expresiones), documentation.actionapps.org (manual), y dentro del repo `README`, `INSTALL.md`, `UPDATE.md`, `PRODUCT.md`, `DESIGN.md`, `FILEMAP.md`, `doc/AAdb.html` (descripción de la base) y `doc/AAdb_ER.html` (diagrama entidad-relación).
+- Releases: 1.8 (2001), 2.0 (2001), 2.2 (2002), 2.4 (2002), 2.6 (2003), 2.8.1 (2005), **2.50.0 (mayo 2009, último con PHP 4)**, **2.90.0 (agosto 2020, último con PHP 5)**; después, desarrollo continuo en SVN y ahora en git.
+- Requisitos de la versión actual: **PHP 8.2 o superior**, **MariaDB 10.0.2+ o MySQL 5.7.5+**, base en `utf8mb4`, Apache 2.4 o nginx. Actualización oficial: `git pull` de `dist` y luego `service/sql_update.php` (o "AA → Optimize"), con `mysqldump` previo.
+- Tamaño: unos 1.700 archivos PHP y ~860.000 líneas (incluye las copias históricas `.php3`, los módulos alerts, polls, links, jump y site, pruebas PHPUnit y análisis PHPStan).
+- Qué trae la versión actual que la antigua no tiene: API JSON (`/api/v1/ping`, `/v1/files`, `/v1/translate`, `/v1/speech/transcribe`, `/v1/expressions`), importadores ("grabbers") desde CSV, RSS, XML, JSON-LD, iCal, SOAP, FTP, otra base SQL y otro canal; cola de tareas para importaciones largas; "State Check"; transcripción de voz con OpenAI (modelo `gpt-4o-transcribe`, clave `AA_APIKEY_OPENAI` en `config.php`); salidas RSS y JSON por vista.
+- Versión instalada en el SIT: no fue posible determinarla desde fuera. Las rutas `.php3`, `filler.php3` y `apc-aa-files` existen tanto en la 2.50 (2009) como en el código actual. El error de 2025 cita `include/zids.php3`; en el repositorio actual ese archivo ya se llama `include/zids.php`, lo que sugiere que el SIT corre una versión anterior a la migración a PHP 8.
 
-- **A. Modernizar en el mismo ActionApps.** Actualizar a la rama `dist` (PHP 8.2, utf8mb4, API JSON, cola de importación, State Check). Riesgo bajo para los datos (es el camino oficial de upgrade), resuelve parte del rendimiento, pero mantiene el modelo EAV, las vistas HTML artesanales y la dependencia de un proyecto de nicho.
-- **B. Sistema nuevo con migración ETL.** Diseñar un modelo relacional propio (participantes, centros, socios locales, proyectos, cursos, inscripciones/certificaciones, monitoreos mensuales, reportes, propuestas, oportunidades económicas, usuarios/roles) y migrar con scripts que "pivoten" `item`+`content` por canal a tablas normalizadas, conservando los IDs antiguos como clave heredada (`legacy_id`, `id_sit`), los catálogos (`constant`) como tablas de referencia y los archivos con su URL original mapeada. Validación por conteos y muestreo por canal/centro/año; corrida en paralelo; congelar importaciones en el corte; dejar el ActionApps en solo lectura como archivo histórico. Plataformas candidatas: base PostgreSQL gestionada (Supabase o Azure Database) + aplicación web moderna; o, si se prefiere low-code, Dataverse/Power Apps o Monday.com (que CGS ya está implantando para reemplazar Dynamics), con Power BI leyendo directo de la base nueva.
-- **C. Híbrido por etapas.** Mantener la base ActionApps como fuente de verdad unos meses, construir primero la capa nueva (API + front) leyendo de una réplica, y migrar canal por canal (primero Cursos/Academia y Participantes, luego Monitoreo y Reportes). Reduce el "big bang" pero exige mantener dos sistemas.
+## 6. Qué se puede extraer sin pedir nada a nadie
 
-Recomendación de partida: hacer el inventario (sección arriba) antes de decidir; con el dump en mano se puede estimar con precisión el esfuerzo del ETL (cantidad de canales, campos, ítems por canal, calidad de catálogos). La estructura EAV de ActionApps es perfectamente exportable; el riesgo real está en la semántica de 14 años de campos y catálogos que solo Diana y Colnodo conocen, por lo que ambos deben estar en la mesa del diseño del modelo nuevo.
+Con el código público:
+- Reconstruir el esquema completo de la base (tablas, columnas, claves) a partir de `include/metabase.class.php`, `doc/AAdb.html` y `doc/AAdb_ER.html`. Ya está hecho en este análisis.
+- Saber el formato exacto de los exportes e importaciones (clases `AA_Exporter_Csv`, `AA_Exporter_Excel`, `AA_Exporter_Html`; importador `IO/Grabber/CSV`).
+- Saber cómo se calculan los IDs, cómo se guardan fechas y catálogos, y cómo funcionan los formularios anónimos (`filler`) y las vistas.
 
-## 6. Qué no pude verificar
+Con el acceso de administradora de canal que ya tienes (sin superadmin), desde `/apc-aa/admin/`:
+- **Export to file** en el Administrador de ítems de cada canal visible: exporta todos los ítems a CSV, Excel o HTML con los códigos de campo en la cabecera. Es la vía más directa para obtener un volcado completo de participantes, cursos, inscripciones, centros y monitoreos, canal por canal.
+- **Administración del canal → Campos**: lista de todos los campos del canal con su `field_id`, tipo, widget, obligatoriedad y catálogo asociado. Esto es el "diccionario de datos" que necesita cualquier migración.
+- **Constantes / catálogos**: valores y códigos de cada lista (países, géneros, vulnerabilidad, tipos de discapacidad).
+- **Vistas**: plantillas HTML de cada pantalla del front; muestran qué campos usa cada rol.
+- **Importar CSV**: muestra en el paso 2 el mapeo completo de campos del canal (el manual de 2026 ya lo documenta para los canales 5 y 6).
+- `view.php3` y `slice.php3` con una vista configurada pueden devolver listados en RSS o JSON para consumo automático.
+Lo que sí requiere superadmin o acceso al servidor: la lista de todos los canales, los usuarios de toda la instalación, `config.php`, el `mysqldump` completo, los crons y feeds, y la versión instalada.
 
-- Acceso a las URLs del SIT (bloqueadas en esta sesión), versión instalada, tamaño de la base, hosting y respaldos.
-- Contrato/alcance vigente con Colnodo (solo vi referencias financieras de 2018–2019 y menciones de 2026).
+## 7. Caminos de modernización
+
+Objetivo declarado: menos trabajo manual, integración con la base de datos institucional y uso de IA.
+
+- **A. Modernizar dentro de ActionApps.** Actualizar a la rama `dist` (PHP 8.2, utf8mb4, API JSON, importador con cola, transcripción con IA). Es el camino oficial de upgrade y conserva todos los datos sin transformación. Mejora rendimiento y seguridad, pero mantiene el modelo EAV, las vistas HTML artesanales por rol e idioma, y la dependencia de un proyecto de nicho con un mantenedor principal.
+- **B. Sistema nuevo con migración ETL (recomendado si el objetivo es IA e integraciones).** Diseñar un modelo relacional propio: personas/participantes, centros, socios locales, programas y proyectos, cursos, inscripciones y certificaciones, monitoreos mensuales, reportes, propuestas, oportunidades económicas, usuarios y roles. Migrar con scripts que pivoten `item`+`content` por canal, conservando los IDs antiguos como clave heredada, los catálogos como tablas de referencia y los archivos con un mapa de URLs antiguas a nuevas. Validar por conteos y muestras por canal, centro y año; corrida en paralelo; congelar importaciones en el corte; dejar el ActionApps en solo lectura como archivo histórico. Sobre una base PostgreSQL o SQL gestionada (por ejemplo Supabase, Azure Database) se pueden construir con poco esfuerzo: formularios web modernos con validación, importaciones con limpieza automática, API para Power BI y para la base institucional, y funciones de IA (deduplicación de personas, normalización de nombres y catálogos, asistente de carga desde Excel, resúmenes de monitoreos, chat sobre los datos).
+- **C. Híbrido por etapas.** Mantener la base ActionApps como fuente de verdad unos meses, construir la capa nueva leyendo de una réplica, y migrar canal por canal (primero Cursos/Academia y Participantes, luego Monitoreo y Reportes). Evita el "big bang" a costa de mantener dos sistemas un tiempo.
+
+Primer paso concreto, sin depender de terceros: exportar con "Export to file" cada canal visible con tu usuario y copiar la pantalla de "Campos" de cada uno. Con esos archivos se puede construir el diccionario de datos y un prototipo de ETL, y estimar con precisión el esfuerzo de la opción B.
+
+## 8. Lo que no pude verificar
+
+- Versión exacta de ActionApps instalada, versión de PHP/MySQL del servidor, proveedor de hosting y política de respaldos.
+- Tamaño real de la base y número total de ítems por canal.
 - Cómo se alimentan hoy los tableros Power BI desde el SIT.
-
-## 7. Fuentes principales
-
-Internas: "Cómo se creó la FSP MCP Junio 2016.docx"; "Manual para uso del SIT_V2022.pdf"; "Manual_Importacion_SIT.pdf" (2026); "Manual Trust.docx"; "SIT-Cronograma2024.xlsx"; "Tratamiento_Datos_DSFY2026 Presentación SS.pptx"; "Dashboard manual.docx"; correos "Erro na página do SIT" (mayo 2025), "BR SIT novo participante" (2024), "Estructura Monitoreo Mensual Brasil" (2025), "Actualización Sistemas + M&E | 14 de octubre de 2026"; chats de Teams (junio 2025 y junio 2026).
-Externas: sourceforge.net/projects/apc-aa (news, files); github.com/apc-aa/ActionApps (README, INSTALL.md, UPDATE.md, PRODUCT.md, composer.json, include/metabase.class.php, doc/AAdb.html); release aa-2.50.0.tgz; actionapps.org; documentation.actionapps.org.
+- Alcance del contrato vigente con Colnodo.
